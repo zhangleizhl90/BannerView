@@ -50,10 +50,33 @@ public class BannerView extends View {
     }
 
     @Override
+    protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+        super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+
+        int maxHeight = 0;
+        for (Bitmap bitmap : mBitmapList) { // find max height
+            int height = (int) (bitmap.getHeight() * (getMeasuredWidth() / (double)bitmap.getWidth()));
+            maxHeight = maxHeight < height ? height : maxHeight;
+        }
+
+        setMeasuredDimension(widthMeasureSpec, MeasureSpec.makeMeasureSpec(maxHeight, MeasureSpec.EXACTLY));
+    }
+
+    @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
 
         mDrawHelper.draw(canvas);
+    }
+
+    public void update(List<Bitmap> bitmapList) {
+        mBitmapList.clear();
+
+        if (bitmapList != null) {
+            mBitmapList.addAll(bitmapList);
+        }
+
+        requestLayout();
     }
 
     private class DrawHelper {
