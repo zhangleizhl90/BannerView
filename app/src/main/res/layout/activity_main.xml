@@ -7,6 +7,7 @@
     tools:context="me.zhanglei.bannerview.MainActivity">
 
     <me.zhanglei.widgets.BannerView
+        android:id="@+id/banner_view"
         android:layout_width="match_parent"
         android:layout_height="wrap_content" />
 </RelativeLayout>
