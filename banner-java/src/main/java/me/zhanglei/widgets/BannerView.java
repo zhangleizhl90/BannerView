@@ -19,8 +19,6 @@ import android.view.animation.LinearInterpolator;
 
 import java.lang.ref.WeakReference;
 
-import me.zhanglei.widgets.R;
-
 /**
  * Banner View
  * Created by zhanglei on 2016/9/17 0017.
@@ -216,6 +214,7 @@ public class BannerView extends View {
                 mIndicatorPaint = new Paint();
                 mIndicatorPaint.setColor(Color.WHITE);
                 mIndicatorPaint.setStrokeWidth(mIndicatorBorder);
+                mIndicatorPaint.setAntiAlias(true);
             }
 
             int count = mAdapter.getCount();

@@ -43,10 +43,10 @@ class MainActivity : AppCompatActivity() {
         mBannerView.setOnItemClickListener { index: Int -> Toast.makeText(this@MainActivity, "Click " + index, Toast.LENGTH_SHORT).show() }
 
         findViewById(R.id.button).setOnClickListener { view ->
-            bitmapList += (BitmapFactory.decodeResource(getResources(), R.drawable.res_1))
-            bitmapList += (BitmapFactory.decodeResource(getResources(), R.drawable.res_2))
-            bitmapList += (BitmapFactory.decodeResource(getResources(), R.drawable.res_3))
-            bitmapList += (BitmapFactory.decodeResource(getResources(), R.drawable.res_4))
+            bitmapList += (BitmapFactory.decodeResource(resources, R.drawable.res_1))
+            bitmapList += (BitmapFactory.decodeResource(resources, R.drawable.res_2))
+            bitmapList += (BitmapFactory.decodeResource(resources, R.drawable.res_3))
+            bitmapList += (BitmapFactory.decodeResource(resources, R.drawable.res_4))
             baseAdapter.notifyDataSetChanged()
         }
 
