@@ -28,7 +28,7 @@ public class BannerView extends View {
 
     private static final String TAG = BannerView.class.getSimpleName();
 
-    private List<Bitmap> mBitmapList = new ArrayList<>();
+    private BaseAdapter mAdapter;
     private int mCurrentIndex = -1;
 
     private OnItemClickListener mOnItemClickListener;
@@ -65,7 +65,8 @@ public class BannerView extends View {
         super.onMeasure(widthMeasureSpec, heightMeasureSpec);
 
         int maxHeight = 0;
-        for (Bitmap bitmap : mBitmapList) { // find max height
+        for (int i = 0; i < mAdapter.getCount(); ++i) { // find max height
+            Bitmap bitmap = mAdapter.getItemAt(i);
             int height = (int) (bitmap.getHeight() * (getMeasuredWidth() / (double) bitmap.getWidth()));
             maxHeight = maxHeight < height ? height : maxHeight;
         }
@@ -93,13 +94,12 @@ public class BannerView extends View {
         return mTouchHelper.onTouch(event);
     }
 
-    public void update(List<Bitmap> bitmapList) {
-        mBitmapList.clear();
-
-        if (bitmapList != null) {
-            mBitmapList.addAll(bitmapList);
-            mCurrentIndex = 0;
+    public void setAdapter(BaseAdapter adapter) {
+        mAdapter = adapter;
+        if (mAdapter != null) {
+            mAdapter.setBannerView(this);
         }
+        mCurrentIndex = 0;
 
         requestLayout();
     }
@@ -111,6 +111,36 @@ public class BannerView extends View {
     public void startAutoScroll() {
         mScrollHelper.startAutoScroll();
     }
+
+    private int getCount() {
+        if (mAdapter == null) {
+            return 0;
+        }
+        return mAdapter.getCount();
+    }
+
+    private void update() {
+        mCurrentIndex = 0;
+        mScrollHelper.reset();
+        mScrollHelper.startAutoScroll();
+        requestLayout();
+    }
+
+    abstract static public class  BaseAdapter {
+
+        private BannerView mBannerView;
+
+        void setBannerView(BannerView bannerView) {
+            mBannerView = bannerView;
+        }
+
+        abstract int getCount();
+        abstract Bitmap getItemAt(int index);
+        final public void notifyDataSetChanged() {
+            mBannerView.update();
+        }
+    }
+
 
     private class DrawHelper {
         private int mOffset;
@@ -137,7 +167,11 @@ public class BannerView extends View {
         }
 
         private void drawImages(Canvas canvas) {
-            Bitmap bitmap = getBitmap(mFirstIndex);
+            if (mAdapter.getCount() <= 0) {
+                return;
+            }
+
+            Bitmap bitmap = mAdapter.getItemAt(mFirstIndex);
             int offset = mOffset;
             if (bitmap != null) {
                 Rect srcRect = getSrcRect(bitmap);
@@ -146,7 +180,7 @@ public class BannerView extends View {
                 offset += getWidth();
             }
 
-            bitmap = getBitmap(mSecondIndex);
+            bitmap = mAdapter.getItemAt(mSecondIndex);
             if (bitmap != null) {
                 Rect srcRect = getSrcRect(bitmap);
                 Rect destRect = getDestRect(bitmap, offset);
@@ -175,14 +209,6 @@ public class BannerView extends View {
             int height = (int) (bitmap.getHeight() * getWidth() / (double) bitmap.getWidth());
             rect.bottom = rect.top + height;
             return rect;
-        }
-
-        private Bitmap getBitmap(int index) {
-            if (mBitmapList != null && index >= 0 && index < mBitmapList.size()) {
-                return mBitmapList.get(index);
-            }
-
-            return null;
         }
     }
 
@@ -261,11 +287,11 @@ public class BannerView extends View {
 
         private void scroll() {
             if (LEFT_TO_RIGHT == mDirection) {
-                int toIndex = (mFromIndex + 1) % mBitmapList.size();
+                int toIndex = (mFromIndex + 1) % getCount();
                 mAnimatorHelper.startAnimator(mFromIndex, toIndex, LEFT_TO_RIGHT);
                 ++mFromIndex;
             } else if (RIGHT_TO_LEFT == mDirection) {
-                int toIndex = (mFromIndex - 1 + mBitmapList.size()) % mBitmapList.size();
+                int toIndex = (mFromIndex - 1 + getCount()) % getCount();
                 mAnimatorHelper.startAnimator(mFromIndex, toIndex, RIGHT_TO_LEFT);
                 --mFromIndex;
             }
@@ -275,6 +301,10 @@ public class BannerView extends View {
         private AutoScrollHandler mAutoScrollHandler;
 
         void startAutoScroll() {
+            if (getCount() <= 1) {
+                return;
+            }
+
             if (mAutoScrollHandler == null) {
                 mAutoScrollHandler = new AutoScrollHandler(this);
             }
@@ -290,17 +320,29 @@ public class BannerView extends View {
         }
 
         void scrollToNext() {
-            int newIndex = (mCurrentIndex + 1) % mBitmapList.size();
+            if (getCount() <= 1) {
+                return;
+            }
+            int newIndex = (mCurrentIndex + 1) % getCount();
             Log.d(TAG, "scroll to next: " + newIndex);
             mScrollHelper.scrollToIndex(newIndex, ScrollHelper.LEFT_TO_RIGHT);
             mCurrentIndex = newIndex;
         }
 
         void scrollToPreview() {
+            if (getCount() <= 1) {
+                return;
+            }
             Log.d(TAG, "scroll to preview");
-            int newIndex = (mCurrentIndex - 1 + mBitmapList.size()) % mBitmapList.size();
+            int newIndex = (mCurrentIndex - 1 + getCount()) % getCount();
             mScrollHelper.scrollToIndex(newIndex, ScrollHelper.RIGHT_TO_LEFT);
             mCurrentIndex = newIndex;
+        }
+
+        void reset() {
+            mFromIndex = 0;
+            mToIndex = 0;
+            mDirection = 0;
         }
     }
 

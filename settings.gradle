@@ -1,1 +1,1 @@
-include ':app', ':widgets'
+include ':app', ':banner-java', ':banner-kotlin'
