@@ -5,7 +5,7 @@ import android.graphics.BitmapFactory
 import android.os.Bundle
 import android.support.v7.app.AppCompatActivity
 import android.widget.Toast
-import me.zhanglei.widgets.kotlin.BannerView
+import me.zhanglei.widgets.BannerView
 import java.util.*
 
 class MainActivity : AppCompatActivity() {
@@ -21,9 +21,18 @@ class MainActivity : AppCompatActivity() {
 //        bitmapList += (BitmapFactory.decodeResource(getResources(), R.drawable.res_2));
 //        bitmapList += (BitmapFactory.decodeResource(getResources(), R.drawable.res_3));
 //        bitmapList += (BitmapFactory.decodeResource(getResources(), R.drawable.res_4));
+//        val baseAdapter = object:BannerView.BaseAdapter() {
+//            override val count: Int
+//                get() = bitmapList.size
+//
+//            override fun getItemAt(index: Int): Bitmap {
+//                return bitmapList[index]
+//            }
+//        }
         val baseAdapter = object:BannerView.BaseAdapter() {
-            override val count: Int
-                get() = bitmapList.size
+            override fun getCount(): Int {
+                return bitmapList.size;
+            }
 
             override fun getItemAt(index: Int): Bitmap {
                 return bitmapList[index]

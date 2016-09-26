@@ -4,6 +4,7 @@ import android.animation.ValueAnimator;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
+import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Rect;
 import android.os.Handler;
@@ -17,8 +18,8 @@ import android.view.View;
 import android.view.animation.LinearInterpolator;
 
 import java.lang.ref.WeakReference;
-import java.util.ArrayList;
-import java.util.List;
+
+import me.zhanglei.widgets.R;
 
 /**
  * Banner View
@@ -134,8 +135,9 @@ public class BannerView extends View {
             mBannerView = bannerView;
         }
 
-        abstract int getCount();
-        abstract Bitmap getItemAt(int index);
+        abstract public int getCount();
+
+        abstract public Bitmap getItemAt(int index);
         final public void notifyDataSetChanged() {
             mBannerView.update();
         }
@@ -148,10 +150,23 @@ public class BannerView extends View {
         private int mSecondIndex;
 
         private Paint mPaint;
+        private Paint mIndicatorPaint;
+
+        private int mIndicatorRadius;
+        private int mIndicatorDiameter;
+        private int mIndicatorBorder;
+        private int mIndicatorPadding;
+        private int mIndicatorMarginBottom;
 
         DrawHelper() {
             mPaint = new Paint();
             mOffset = 0;
+
+            mIndicatorRadius = getResources().getDimensionPixelSize(R.dimen.indicator_radius);
+            mIndicatorDiameter = 2 * mIndicatorRadius;
+            mIndicatorBorder = getResources().getDimensionPixelSize(R.dimen.indicator_border);
+            mIndicatorPadding = getResources().getDimensionPixelSize(R.dimen.indicator_padding);
+            mIndicatorMarginBottom = getResources().getDimensionPixelSize(R.dimen.indicator_margin_bottom);
         }
 
         void update(int offset, int firstIndex, int secondIndex) {
@@ -189,7 +204,34 @@ public class BannerView extends View {
         }
 
         private void drawIndicator(Canvas canvas) {
+            if (canvas == null) {
+                return;
+            }
 
+            if (mAdapter == null || mAdapter.getCount() <= 0) {
+                return;
+            }
+
+            if (mIndicatorPaint == null) {
+                mIndicatorPaint = new Paint();
+                mIndicatorPaint.setColor(Color.WHITE);
+                mIndicatorPaint.setStrokeWidth(mIndicatorBorder);
+            }
+
+            int count = mAdapter.getCount();
+            int width = getWidth();
+            int height = getHeight();
+
+            int firstCX = (width - mIndicatorDiameter * count - mIndicatorPadding * (count - 1)) / 2 + mIndicatorRadius;
+            int firstCY = height - mIndicatorMarginBottom - mIndicatorRadius;
+
+            for (int i = 0; i < count; ++i) {
+                mIndicatorPaint.setStyle(mCurrentIndex == i ? Paint.Style.FILL_AND_STROKE : Paint.Style.STROKE);
+
+                canvas.drawCircle(firstCX, firstCY, mIndicatorRadius, mIndicatorPaint);
+
+                firstCX += mIndicatorPadding + mIndicatorDiameter;
+            }
         }
 
         private Rect getSrcRect(Bitmap bitmap) {

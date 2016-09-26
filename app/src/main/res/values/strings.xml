@@ -1,4 +1,4 @@
 <resources>
     <string name="app_name">BannerView</string>
-    <string name="button">Button</string>
+    <string name="button">Click Show Banner</string>
 </resources>
