@@ -49,6 +49,7 @@ class MainActivity : AppCompatActivity() {
             bitmapList += loadBitmap(R.drawable.res_3, mBannerView.width)
             bitmapList += loadBitmap(R.drawable.res_4, mBannerView.width)
             baseAdapter.notifyDataSetChanged()
+            mBannerView.startAutoScroll()
         }
 
     }
@@ -62,7 +63,7 @@ class MainActivity : AppCompatActivity() {
     override fun onPause() {
         super.onPause()
 
-        mBannerView?.startAutoScroll()
+        mBannerView?.stopAutoScroll()
     }
 
     fun loadBitmap(resId: Int, viewWidth: Int): Bitmap {
