@@ -1,44 +1,48 @@
 package me.zhanglei.widgets.kotlin
 
+import android.animation.Animator
 import android.animation.ValueAnimator
 import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.Paint
-import android.graphics.Rect
+import android.graphics.*
 import android.os.Handler
 import android.os.Message
 import android.support.v4.view.MotionEventCompat
 import android.util.AttributeSet
 import android.util.Log
-import android.view.GestureDetector
 import android.view.MotionEvent
+import android.view.VelocityTracker
 import android.view.View
 import android.view.animation.LinearInterpolator
-
+import me.zhanglei.widgets.R
 import java.lang.ref.WeakReference
 
 /**
  * Banner View
  * Created by zhanglei on 2016/9/17 0017.
  */
-
-val LEFT_TO_RIGHT = -1
-val RIGHT_TO_LEFT = 1
-
-val MESSAGE_SCROLL = 0
-
 class BannerView : View {
 
-    private var mAdapter: BaseAdapter? = null
+    var adapter: BaseAdapter? = null
+        set(adapter) {
+            field = adapter
+            if (this.adapter != null) {
+                this.adapter!!.setBannerView(this)
+            }
+            mCurrentIndex = 0
+
+            requestLayout()
+        }
     private var mCurrentIndex = -1
 
-    private var mOnItemClickListener: (Int) -> Unit = {}
+    var onItemClickListener: OnItemClickListener? = null
+    private var mOnCurrentChangeListener: OnCurrentChangeListener? = null
 
-    private var mDrawHelper: DrawHelper? = null
-    private var mAnimatorHelper: AnimatorHelper? = null
-    private var mScrollHelper: ScrollHelper? = null
-    private var mTouchHelper: TouchHelper? = null
+    private val mDrawHelper = DrawHelper()
+    private val mAnimationHelper = AnimationHelper()
+    private val mScrollHelper = ScrollHelper()
+    private val mTouchHelper = TouchHelper()
+
+    private var mInAnimation = false
 
     constructor(context: Context) : super(context) {
         init()
@@ -53,18 +57,15 @@ class BannerView : View {
     }
 
     private fun init() {
-        mDrawHelper = DrawHelper()
-        mAnimatorHelper = AnimatorHelper()
-        mScrollHelper = ScrollHelper()
-        mTouchHelper = TouchHelper()
+
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         super.onMeasure(widthMeasureSpec, heightMeasureSpec)
 
         var maxHeight = 0
-        for (i in 0..mAdapter!!.count - 1) { // find max height
-            val bitmap = mAdapter!!.getItemAt(i)
+        for (i in 0..adapter!!.count - 1) { // find max height
+            val bitmap = adapter!!.getItemAt(i)
             val height = (bitmap.height * (measuredWidth / bitmap.width.toDouble())).toInt()
             maxHeight = if (maxHeight < height) height else maxHeight
         }
@@ -75,49 +76,48 @@ class BannerView : View {
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
 
-        mDrawHelper!!.draw(canvas)
+        mDrawHelper.draw(canvas)
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        when (event.action and MotionEventCompat.ACTION_MASK) {
-            MotionEvent.ACTION_DOWN -> mScrollHelper!!.stopAutoScroll()
-            MotionEvent.ACTION_UP -> mScrollHelper!!.startAutoScroll()
-        }
-        return mTouchHelper!!.onTouch(event)
+        return mTouchHelper.onTouch(event)
     }
 
-    fun setAdapter(adapter: BaseAdapter) {
-        mAdapter = adapter
-        if (mAdapter != null) {
-            mAdapter!!.setBannerView(this)
-        }
-        mCurrentIndex = 0
-
-        requestLayout()
-    }
-
-    fun setOnItemClickListener(onItemClickListener: (Int) -> Unit) {
-        mOnItemClickListener = onItemClickListener
+    fun setOnCurrentChangeListener(onCurrentChangeListener: OnCurrentChangeListener) {
+        mOnCurrentChangeListener = onCurrentChangeListener
     }
 
     fun startAutoScroll() {
-        mScrollHelper!!.startAutoScroll()
+        mScrollHelper.startAutoScroll()
     }
 
-    private val count: Int
+    fun stopAutoScroll() {
+        mScrollHelper.stopAutoScroll()
+    }
+
+    val count: Int
         get() {
-            if (mAdapter == null) {
+            if (adapter == null) {
                 return 0
             }
-            return mAdapter!!.count
+            return adapter!!.count
         }
 
     private fun update() {
         mCurrentIndex = 0
-        mScrollHelper!!.reset()
-        mScrollHelper!!.startAutoScroll()
+        mScrollHelper.reset()
         requestLayout()
     }
+
+    var currentIndex: Int
+        get() = mCurrentIndex
+        set(currentIndex) {
+            val oldIndex = mCurrentIndex
+            mCurrentIndex = currentIndex
+            if (mOnCurrentChangeListener != null) {
+                mOnCurrentChangeListener!!.onCurrentChanged(oldIndex, currentIndex)
+            }
+        }
 
     abstract class BaseAdapter {
 
@@ -128,23 +128,46 @@ class BannerView : View {
         }
 
         abstract val count: Int
+
         abstract fun getItemAt(index: Int): Bitmap
+
         fun notifyDataSetChanged() {
             mBannerView!!.update()
         }
     }
 
+    interface OnItemClickListener {
+        fun onItemClick(index: Int)
+    }
+
+    interface OnCurrentChangeListener {
+        fun onCurrentChanged(oldIndex: Int, newIndex: Int)
+    }
 
     private inner class DrawHelper internal constructor() {
+
         private var mOffset: Int = 0
         private var mFirstIndex: Int = 0
         private var mSecondIndex: Int = 0
 
         private val mPaint: Paint
+        private var mIndicatorPaint: Paint? = null
+
+        private val mIndicatorRadius: Int
+        private val mIndicatorDiameter: Int
+        private val mIndicatorBorder: Int
+        private val mIndicatorPadding: Int
+        private val mIndicatorMarginBottom: Int
 
         init {
             mPaint = Paint()
             mOffset = 0
+
+            mIndicatorRadius = resources.getDimensionPixelSize(R.dimen.indicator_radius)
+            mIndicatorDiameter = 2 * mIndicatorRadius
+            mIndicatorBorder = resources.getDimensionPixelSize(R.dimen.indicator_border)
+            mIndicatorPadding = resources.getDimensionPixelSize(R.dimen.indicator_padding)
+            mIndicatorMarginBottom = resources.getDimensionPixelSize(R.dimen.indicator_margin_bottom)
         }
 
         internal fun update(offset: Int, firstIndex: Int, secondIndex: Int) {
@@ -160,11 +183,11 @@ class BannerView : View {
         }
 
         private fun drawImages(canvas: Canvas) {
-            if (mAdapter!!.count <= 0) {
+            if (adapter!!.count <= 0) {
                 return
             }
 
-            var bitmap: Bitmap? = mAdapter!!.getItemAt(mFirstIndex)
+            var bitmap: Bitmap? = adapter!!.getItemAt(mFirstIndex)
             var offset = mOffset
             if (bitmap != null) {
                 val srcRect = getSrcRect(bitmap)
@@ -173,14 +196,43 @@ class BannerView : View {
                 offset += width
             }
 
-            bitmap = mAdapter!!.getItemAt(mSecondIndex)
+            bitmap = adapter!!.getItemAt(mSecondIndex)
+
             val srcRect = getSrcRect(bitmap)
             val destRect = getDestRect(bitmap, offset)
             canvas.drawBitmap(bitmap, srcRect, destRect, mPaint)
         }
 
-        private fun drawIndicator(canvas: Canvas) {
+        private fun drawIndicator(canvas: Canvas?) {
+            if (canvas == null) {
+                return
+            }
 
+            if (adapter == null || adapter!!.count <= 0) {
+                return
+            }
+
+            if (mIndicatorPaint == null) {
+                mIndicatorPaint = Paint()
+                mIndicatorPaint!!.color = Color.WHITE
+                mIndicatorPaint!!.strokeWidth = mIndicatorBorder.toFloat()
+                mIndicatorPaint!!.isAntiAlias = true
+            }
+
+            val count = adapter!!.count
+            val width = width
+            val height = height
+
+            var firstCX = (width - mIndicatorDiameter * count - mIndicatorPadding * (count - 1)) / 2 + mIndicatorRadius
+            val firstCY = height - mIndicatorMarginBottom - mIndicatorRadius
+
+            for (i in 0..count - 1) {
+                mIndicatorPaint!!.style = if (currentIndex == i) Paint.Style.FILL_AND_STROKE else Paint.Style.STROKE
+
+                canvas.drawCircle(firstCX.toFloat(), firstCY.toFloat(), mIndicatorRadius.toFloat(), mIndicatorPaint!!)
+
+                firstCX += mIndicatorPadding + mIndicatorDiameter
+            }
         }
 
         private fun getSrcRect(bitmap: Bitmap): Rect {
@@ -203,82 +255,17 @@ class BannerView : View {
         }
     }
 
-    private inner class AnimatorHelper {
-        internal var mAnimator: ValueAnimator? = null
-
-        internal fun startAnimator(firstIndex: Int, secondIndex: Int, direction: Int) {
-            if (mAnimator != null) {
-                mAnimator!!.cancel()
-            }
-
-            if (LEFT_TO_RIGHT == direction) {
-                mAnimator = ValueAnimator.ofInt(0, -width)
-            } else if (RIGHT_TO_LEFT == direction) {
-                mAnimator = ValueAnimator.ofInt(-width, 0)
-            }
-            mAnimator!!.addUpdateListener { animation ->
-                val offset = animation.animatedValue as Int
-                if (LEFT_TO_RIGHT == direction) {
-                    mDrawHelper!!.update(offset, firstIndex, secondIndex)
-                } else if (RIGHT_TO_LEFT == direction) {
-                    mDrawHelper!!.update(offset, secondIndex, firstIndex)
-                }
-            }
-            mAnimator!!.interpolator = LinearInterpolator()
-            mAnimator!!.setDuration(200).start()
-        }
-
-        internal fun stopAnimator() {
-            if (mAnimator != null) {
-                mAnimator!!.cancel()
-            }
-        }
-    }
-
-    private class AutoScrollHandler internal constructor(scrollHelper: ScrollHelper) : Handler() {
-
-        private val mBannerViewRef: WeakReference<ScrollHelper>
-
-        init {
-            mBannerViewRef = WeakReference(scrollHelper)
-        }
-
-        override fun handleMessage(msg: Message) {
-            val scrollHelper = mBannerViewRef.get()
-            if (scrollHelper != null) {
-                scrollHelper.scrollToNext()
-                scrollHelper.startAutoScroll()
-            }
-        }
-    }
-
     private inner class ScrollHelper {
 
-        private var mFromIndex: Int = 0
-        private var mToIndex: Int = 0
-        private var mDirection: Int = 0
+        private var mOffset = 0
 
-        internal fun scrollToIndex(index: Int, direction: Int) {
-            scrollFromTo(mCurrentIndex, index, direction)
-        }
-
-        internal fun scrollFromTo(from: Int, to: Int, direction: Int) {
-            mFromIndex = from
-            mToIndex = to
-            mDirection = direction
-            scroll()
-        }
-
-        private fun scroll() {
-            if (LEFT_TO_RIGHT == mDirection) {
-                val toIndex = (mFromIndex + 1) % count
-                mAnimatorHelper!!.startAnimator(mFromIndex, toIndex, LEFT_TO_RIGHT)
-                ++mFromIndex
-            } else if (RIGHT_TO_LEFT == mDirection) {
-                val toIndex = (mFromIndex - 1 + count) % count
-                mAnimatorHelper!!.startAnimator(mFromIndex, toIndex, RIGHT_TO_LEFT)
-                --mFromIndex
+        private fun scrollFromTo(from: Int, to: Int, direction: Int) {
+            if (direction == LEFT_TO_RIGHT) {
+                mAnimationHelper.startAnimator(from, to, -width + mOffset, 0)
+            } else {
+                mAnimationHelper.startAnimator(from, to, mOffset, -width)
             }
+            mOffset = 0
         }
 
         private var mAutoScrollHandler: AutoScrollHandler? = null
@@ -303,81 +290,261 @@ class BannerView : View {
         }
 
         internal fun scrollToNext() {
-            if (count <= 1) {
+            if (count <= 1 || mInAnimation) {
                 return
             }
-            val newIndex = (mCurrentIndex + 1) % count
+            val newIndex = (currentIndex + 1) % count
             Log.d(TAG, "scroll to next: " + newIndex)
-            mScrollHelper!!.scrollToIndex(newIndex, LEFT_TO_RIGHT)
-            mCurrentIndex = newIndex
+            mScrollHelper.scrollFromTo(currentIndex, newIndex, RIGHT_TO_LEFT)
+            currentIndex = newIndex
         }
 
         internal fun scrollToPreview() {
-            if (count <= 1) {
+            if (count <= 1 || mInAnimation) {
                 return
             }
             Log.d(TAG, "scroll to preview")
-            val newIndex = (mCurrentIndex - 1 + count) % count
-            mScrollHelper!!.scrollToIndex(newIndex, RIGHT_TO_LEFT)
-            mCurrentIndex = newIndex
+            val newIndex = (currentIndex - 1 + count) % count
+            mScrollHelper.scrollFromTo(newIndex, currentIndex, LEFT_TO_RIGHT)
+            currentIndex = newIndex
         }
 
         internal fun reset() {
-            mFromIndex = 0
-            mToIndex = 0
-            mDirection = 0
+            mOffset = 0
+        }
+
+        internal fun scrollOffset(distanceX: Int) {
+            mOffset = distanceX
+
+            if (mOffset >= width) {
+                mOffset -= width
+                --mCurrentIndex
+            } else if (mOffset <= -width) {
+                mOffset += width
+                ++mCurrentIndex
+            }
+
+            val firstIndex: Int
+            val secondIndex: Int
+            val offset: Int
+            if (mOffset > 0) {
+                firstIndex = (mCurrentIndex - 1 + count) % count
+                secondIndex = mCurrentIndex
+                offset = mOffset - width
+            } else {
+                firstIndex = mCurrentIndex
+                secondIndex = (mCurrentIndex + 1) % count
+                offset = mOffset
+            }
+            mDrawHelper.update(offset, firstIndex, secondIndex)
+        }
+
+        internal fun continueAutoScroll(isFling: Boolean, velocityX: Int) {
+
+            if (isFling) {
+                if (velocityX > 0) {
+                    mScrollHelper.scrollToPreview()
+                } else {
+                    mScrollHelper.scrollToNext()
+                }
+                return
+            }
+
+            if (mOffset == 0) {
+                return
+            }
+
+            val start: Int
+            val end: Int
+            val firstIndex: Int
+            val secondIndex: Int
+            val newCurrentIndex: Int
+            if (mOffset > 0) {
+                firstIndex = (mCurrentIndex - 1 + count) % count
+                secondIndex = mCurrentIndex
+                if (Math.abs(mOffset) > width / 2) { // LEFT_TO_RIGHT
+                    start = mOffset - width
+                    end = 0
+                    newCurrentIndex = firstIndex
+                } else { // RIGHT_TO_LEFT
+                    start = mOffset - width
+                    end = -width
+                    newCurrentIndex = secondIndex
+                }
+            } else {
+                firstIndex = mCurrentIndex
+                secondIndex = (mCurrentIndex + 1) % count
+                if (Math.abs(mOffset) > width / 2) { //
+                    start = mOffset
+                    end = -width
+                    newCurrentIndex = secondIndex
+                } else {
+                    start = mOffset
+                    end = 0
+                    newCurrentIndex = firstIndex
+                }
+            }
+            mAnimationHelper.startAnimator(firstIndex, secondIndex, start, end)
+            currentIndex = newCurrentIndex
+            mOffset = 0
+        }
+    }
+
+    private class AutoScrollHandler internal constructor(scrollHelper: ScrollHelper) : Handler() {
+
+        private val mBannerViewRef: WeakReference<ScrollHelper>
+
+        init {
+            mBannerViewRef = WeakReference(scrollHelper)
+        }
+
+        override fun handleMessage(msg: Message) {
+            val scrollHelper = mBannerViewRef.get()
+            if (scrollHelper != null) {
+                scrollHelper.scrollToNext()
+                scrollHelper.startAutoScroll()
+            }
+        }
+    }
+
+    private inner class AnimationHelper {
+
+        private var mAnimator: ValueAnimator? = null
+
+        internal fun startAnimator(firstIndex: Int, secondIndex: Int, start: Int, end: Int) {
+            if (mAnimator != null) {
+                mAnimator!!.cancel()
+            }
+
+            mAnimator = ValueAnimator.ofInt(start, end)
+            mAnimator!!.addUpdateListener { animation ->
+                val offset = animation.animatedValue as Int
+                mDrawHelper.update(offset, firstIndex, secondIndex)
+            }
+            mAnimator!!.addListener(object : Animator.AnimatorListener {
+                override fun onAnimationStart(animation: Animator) {
+                    mInAnimation = true
+                }
+
+                override fun onAnimationEnd(animation: Animator) {
+                    mInAnimation = false
+                }
+
+                override fun onAnimationCancel(animation: Animator) {
+                    mInAnimation = false
+                }
+
+                override fun onAnimationRepeat(animation: Animator) {
+                    mInAnimation = false
+                }
+            })
+            mAnimator!!.interpolator = LinearInterpolator()
+            mAnimator!!.setDuration(200).start()
+
+        }
+
+        internal fun stopAnimator() {
+            if (mAnimator != null) {
+                mAnimator!!.cancel()
+            }
         }
     }
 
     private inner class TouchHelper internal constructor() {
+        private var mVelocityTracker: VelocityTracker? = null
+        private var mInitialMotionX: Float = 0.toFloat()
+        private var mInitialMotionY: Float = 0.toFloat()
+        private var mLastMotionX: Float = 0.toFloat()
+        private var mLastMotionY: Float = 0.toFloat()
+        private val mMinimumVelocity: Float
+        private val mMaximumVelocity: Float
+        private var mActivePointerId: Int = 0
+        private val mTouchSlop: Int
 
-        private val mOnGestureListener = object : GestureDetector.SimpleOnGestureListener() {
-            override fun onDown(e: MotionEvent): Boolean {
-                Log.d(TAG, "onDown")
-                return true
-            }
-
-            override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
-                Log.d(TAG, "onSingleTapConfirmed")
-                mOnItemClickListener(mCurrentIndex)
-                return true
-            }
-
-            override fun onScroll(e1: MotionEvent, e2: MotionEvent, distanceX: Float, distanceY: Float): Boolean {
-                Log.d(TAG, "onScroll")
-                return true
-            }
-
-            override fun onFling(e1: MotionEvent, e2: MotionEvent, velocityX: Float, velocityY: Float): Boolean {
-                Log.d(TAG, "onFling: $velocityX, $velocityY")
-                val tempX = Math.abs(velocityX)
-                val tempY = Math.abs(velocityY)
-
-                if (tempY > tempX) {
-                    return false
-                } else {
-                    if (velocityX > 0) {
-                        mScrollHelper!!.scrollToPreview()
-                    } else {
-                        mScrollHelper!!.scrollToNext()
-                    }
-                    return true
-                }
-            }
-        }
-
-        private val mGestureDetector: GestureDetector
+        private var mIsBeingDragged: Boolean = false
 
         init {
-            mGestureDetector = GestureDetector(context, mOnGestureListener)
+            mTouchSlop = resources.getDimensionPixelSize(R.dimen.touch_slop)
+            mMinimumVelocity = resources.getDimensionPixelSize(R.dimen.minimum_velocity).toFloat()
+            mMaximumVelocity = resources.getDimensionPixelSize(R.dimen.maximum_velocity).toFloat()
         }
 
         internal fun onTouch(event: MotionEvent): Boolean {
-            return mGestureDetector.onTouchEvent(event)
+
+            if (mInAnimation) {
+                return true
+            }
+
+            if (mVelocityTracker == null) {
+                mVelocityTracker = VelocityTracker.obtain()
+            }
+
+            mVelocityTracker!!.addMovement(event)
+
+            when (event.action and MotionEventCompat.ACTION_MASK) {
+                MotionEvent.ACTION_DOWN -> {
+                    mScrollHelper.stopAutoScroll()
+
+                    mLastMotionX = event.x
+                    mInitialMotionX = event.x
+                    mLastMotionY = event.y
+                    mInitialMotionY = event.y
+                    mActivePointerId = event.getPointerId(0)
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    if (!mIsBeingDragged) {
+                        val pointerIndex = event.findPointerIndex(mActivePointerId)
+                        if (pointerIndex == -1) {
+                            // reset();
+                        }
+                        val x = event.getX(pointerIndex)
+                        val xDiff = Math.abs(x - mLastMotionX)
+                        val y = event.getY(pointerIndex)
+                        val yDiff = Math.abs(y - mLastMotionY)
+
+                        if (xDiff > mTouchSlop && xDiff > yDiff) {
+                            mIsBeingDragged = true
+                            mLastMotionX = if (x - mInitialMotionX > 0)
+                                mInitialMotionX + mTouchSlop
+                            else
+                                mInitialMotionX - mTouchSlop
+                            mLastMotionY = y
+                        }
+                    }
+
+                    if (mIsBeingDragged) {
+                        val activePointerIndex = event.findPointerIndex(mActivePointerId)
+                        val x = event.getX(activePointerIndex)
+                        mScrollHelper.scrollOffset((x - mLastMotionX).toInt())
+                    }
+                }
+                MotionEvent.ACTION_UP -> {
+                    Log.d(TAG, "ACTION_UP")
+                    if (mIsBeingDragged) {
+                        val velocityTracker = mVelocityTracker
+                        velocityTracker!!.computeCurrentVelocity(1000)
+                        val initialVelocity = velocityTracker.getXVelocity(mActivePointerId).toInt()
+                        Log.d(TAG, "velocity: " + initialVelocity)
+                        val isFling = Math.abs(initialVelocity) > mMinimumVelocity
+                        mScrollHelper.continueAutoScroll(isFling, initialVelocity)
+                    } else {
+                        if (onItemClickListener != null) {
+                            onItemClickListener!!.onItemClick(currentIndex)
+                        }
+                    }
+                    mScrollHelper.startAutoScroll()
+                }
+                else -> {
+                }
+            }
+            return true
         }
     }
 
     companion object {
+        private val LEFT_TO_RIGHT = 1
+        private val RIGHT_TO_LEFT = 2
+        private val MESSAGE_SCROLL = 0
         private val TAG = BannerView::class.java.simpleName
     }
 }

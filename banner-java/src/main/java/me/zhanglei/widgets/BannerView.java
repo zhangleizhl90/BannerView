@@ -1,5 +1,7 @@
 package me.zhanglei.widgets;
 
+import android.animation.Animator;
+import android.animation.AnimatorListenerAdapter;
 import android.animation.ValueAnimator;
 import android.content.Context;
 import android.graphics.Bitmap;
@@ -12,8 +14,8 @@ import android.os.Message;
 import android.support.v4.view.MotionEventCompat;
 import android.util.AttributeSet;
 import android.util.Log;
-import android.view.GestureDetector;
 import android.view.MotionEvent;
+import android.view.VelocityTracker;
 import android.view.View;
 import android.view.animation.LinearInterpolator;
 
@@ -141,12 +143,9 @@ public class BannerView extends View {
 
     public void setCurrentIndex(int currentIndex) {
         int oldIndex = mCurrentIndex;
-        int newIndex = currentIndex;
-
         mCurrentIndex = currentIndex;
-
         if (mOnCurrentChangeListener != null) {
-            mOnCurrentChangeListener.onCurrentChanged(oldIndex, newIndex);
+            mOnCurrentChangeListener.onCurrentChanged(oldIndex, currentIndex);
         }
     }
 
@@ -295,10 +294,11 @@ public class BannerView extends View {
 
         private void scrollFromTo(int from, int to, int direction) {
             if (direction == LEFT_TO_RIGHT) {
-                mAnimationHelper.startAnimator(from, to, -getWidth(), 0);
+                mAnimationHelper.startAnimator(from, to, -getWidth() + mOffset, 0);
             } else {
-                mAnimationHelper.startAnimator(from, to, 0, -getWidth());
+                mAnimationHelper.startAnimator(from, to, mOffset, -getWidth());
             }
+            mOffset = 0;
         }
 
         private static final int MESSAGE_SCROLL = 0;
@@ -334,7 +334,7 @@ public class BannerView extends View {
         }
 
         void scrollToPreview() {
-            if (getCount() <= 1) {
+            if (getCount() <= 1 || mInAnimation) {
                 return;
             }
             Log.d(TAG, "scroll to preview");
@@ -348,7 +348,7 @@ public class BannerView extends View {
         }
 
         void scrollOffset(int distanceX) {
-            mOffset -= distanceX;
+            mOffset = distanceX;
 
             if (mOffset >= getWidth()) {
                 mOffset -= getWidth();
@@ -373,7 +373,16 @@ public class BannerView extends View {
             mDrawHelper.update(offset, firstIndex, secondIndex);
         }
 
-        void continueAutoScroll() {
+        void continueAutoScroll(boolean isFling, int velocityX) {
+
+            if (isFling) {
+                if (velocityX > 0) {
+                    mScrollHelper.scrollToPreview();
+                } else {
+                    mScrollHelper.scrollToNext();
+                }
+                return;
+            }
 
             if (mOffset == 0) {
                 return;
@@ -442,91 +451,134 @@ public class BannerView extends View {
                 mAnimator.cancel();
             }
 
-            mInAnimation = true;
 
             mAnimator = ValueAnimator.ofInt(start, end);
-
             mAnimator.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
                 @Override
                 public void onAnimationUpdate(ValueAnimator animation) {
                     int offset = (int) animation.getAnimatedValue();
                     mDrawHelper.update(offset, firstIndex, secondIndex);
+                }
+            });
+            mAnimator.addListener(new AnimatorListenerAdapter() {
+                @Override
+                public void onAnimationStart(Animator animation) {
+                    mInAnimation = true;
+                }
 
-                    mInAnimation = offset == end;
+                @Override
+                public void onAnimationEnd(Animator animation) {
+                    mInAnimation = false;
+                }
+
+                @Override
+                public void onAnimationCancel(Animator animation) {
+                    mInAnimation = false;
                 }
             });
             mAnimator.setInterpolator(new LinearInterpolator());
             mAnimator.setDuration(200).start();
+
         }
 
         void stopAnimator() {
             if (mAnimator != null) {
                 mAnimator.cancel();
             }
-            mInAnimation = false;
         }
     }
 
     private class TouchHelper {
 
-        private GestureDetector mGestureDetector;
+//        private GestureDetector mGestureDetector;
+
+        private VelocityTracker mVelocityTracker;
+        private float mInitialMotionX;
+        private float mInitialMotionY;
+        private float mLastMotionX;
+        private float mLastMotionY;
+        private float mMinimumVelocity;
+        private float mMaximumVelocity;
+        private int mActivePointerId;
+        private int mTouchSlop;
+
+        private boolean mIsBeingDragged;
 
         TouchHelper() {
-            mGestureDetector = new GestureDetector(getContext(), mOnGestureListener);
+//            mGestureDetector = new GestureDetector(getContext(), mOnGestureListener);
+            mTouchSlop = getResources().getDimensionPixelSize(R.dimen.touch_slop);
+            mMinimumVelocity = getResources().getDimensionPixelSize(R.dimen.minimum_velocity);
+            mMaximumVelocity = getResources().getDimensionPixelSize(R.dimen.maximum_velocity);
         }
 
         boolean onTouch(MotionEvent event) {
+
+            if (mInAnimation) {
+                return true;
+            }
+
+            if (mVelocityTracker == null) {
+                mVelocityTracker = VelocityTracker.obtain();
+            }
+
+            mVelocityTracker.addMovement(event);
+
             switch (event.getAction() & MotionEventCompat.ACTION_MASK) {
                 case MotionEvent.ACTION_DOWN:
                     mScrollHelper.stopAutoScroll();
+
+                    mLastMotionX = mInitialMotionX = event.getX();
+                    mLastMotionY = mInitialMotionY = event.getY();
+                    mActivePointerId = event.getPointerId(0);
+                    break;
+                case MotionEvent.ACTION_MOVE:
+                    if (!mIsBeingDragged) {
+                        final int pointerIndex = event.findPointerIndex(mActivePointerId);
+                        if (pointerIndex == -1) {
+                            // reset();
+                            break;
+                        }
+                        final float x = event.getX(pointerIndex);
+                        final float xDiff = Math.abs(x - mLastMotionX);
+                        final float y = event.getY(pointerIndex);
+                        final float yDiff = Math.abs(y - mLastMotionY);
+
+                        if (xDiff > mTouchSlop && xDiff > yDiff) {
+                            mIsBeingDragged = true;
+                            mLastMotionX = x - mInitialMotionX > 0 ? mInitialMotionX + mTouchSlop :
+                                    mInitialMotionX - mTouchSlop;
+                            mLastMotionY = y;
+                        }
+                    }
+
+                    if (mIsBeingDragged) {
+                        final int activePointerIndex = event.findPointerIndex(mActivePointerId);
+                        if (activePointerIndex != -1) {
+                            final float x = event.getX(activePointerIndex);
+                            mScrollHelper.scrollOffset((int) (x - mLastMotionX));
+                        }
+                    }
                     break;
                 case MotionEvent.ACTION_UP:
-                    mScrollHelper.continueAutoScroll();
+                    Log.d(TAG, "ACTION_UP");
+                    if (mIsBeingDragged) {
+                        final VelocityTracker velocityTracker = mVelocityTracker;
+                        velocityTracker.computeCurrentVelocity(1000);
+                        int initialVelocity = (int) velocityTracker.getXVelocity(mActivePointerId);
+                        Log.d(TAG, "velocity: " + initialVelocity);
+                        boolean isFling = Math.abs(initialVelocity) > mMinimumVelocity;
+                        mScrollHelper.continueAutoScroll(isFling, initialVelocity);
+                    } else {
+                        if (getOnItemClickListener() != null) {
+                            getOnItemClickListener().onItemClick(getCurrentIndex());
+                        }
+                    }
                     mScrollHelper.startAutoScroll();
                     break;
+                default:
+                    break;
             }
-            return mGestureDetector.onTouchEvent(event);
+            return true;
         }
-
-        private GestureDetector.SimpleOnGestureListener mOnGestureListener = new GestureDetector.SimpleOnGestureListener() {
-            @Override
-            public boolean onDown(MotionEvent e) {
-                Log.d(TAG, "onDown");
-                return true;
-            }
-
-            @Override
-            public boolean onSingleTapConfirmed(MotionEvent e) {
-                if (getOnItemClickListener() != null) {
-                    getOnItemClickListener().onItemClick(getCurrentIndex());
-                }
-                return true;
-            }
-
-            @Override
-            public boolean onScroll(MotionEvent e1, MotionEvent e2, float distanceX, float distanceY) {
-                Log.d(TAG, "onScroll");
-                mScrollHelper.scrollOffset((int) distanceX);
-                return false;
-            }
-
-            @Override
-            public boolean onFling(MotionEvent e1, MotionEvent e2, float velocityX, float velocityY) {
-                Log.d(TAG, "onFling: " + velocityX + ", " + velocityY);
-                float tempX = Math.abs(velocityX);
-                float tempY = Math.abs(velocityY);
-
-                if (tempY > tempX) {
-                    return false;
-                } else {
-                    if (velocityX > 0) {
-                        mScrollHelper.scrollToPreview();
-                    } else {
-                        mScrollHelper.scrollToNext();
-                    }
-                    return true;
-                }
-            }
-        };
     }
 }
